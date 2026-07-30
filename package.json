@@ -1,0 +1,19 @@
+{
+  "name": "xodia-realtime-schedule",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time 30-minute event schedule backed by MongoDB and Socket.IO.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check docs/app.js && node --check docs/config.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "5.2.0",
+    "mongoose": "9.8.0",
+    "socket.io": "4.8.3"
+  }
+}

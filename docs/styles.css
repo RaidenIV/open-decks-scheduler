@@ -1,0 +1,601 @@
+:root {
+  color-scheme: dark;
+  --background: #000;
+  --panel: #0d0d0e;
+  --field: #0f0f12;
+  --field-hover: #151519;
+  --text: #f2f2f4;
+  --muted: #a7a7ad;
+  --line: #2a2a2f;
+  --accent: #0099ff;
+  --success: #6ee7a0;
+  --danger: #ff6b6b;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: "Rajdhani", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+.app-shell {
+  width: 100%;
+  min-height: 100vh;
+  padding: clamp(12px, 3vw, 32px);
+  display: grid;
+  place-items: center;
+}
+
+.schedule-card {
+  width: min(100%, 800px);
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.schedule-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.header-copy h1 {
+  margin: 0 0 5px;
+  font-size: clamp(28px, 5vw, 36px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.header-copy p,
+.schedule-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.brand-logo {
+  width: 132px;
+  height: auto;
+  display: block;
+}
+
+.connection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.connection-pill.is-online {
+  color: var(--success);
+  border-color: rgba(110, 231, 160, 0.35);
+}
+
+.connection-pill.is-online .connection-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(110, 231, 160, 0.08);
+}
+
+.connection-pill.is-offline {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.connection-pill.is-offline .connection-dot {
+  background: var(--danger);
+}
+
+.schedule-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.schedule-list {
+  display: grid;
+  gap: 8px;
+}
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: 34px 88px minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 54px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--field);
+  transition: border-color 160ms ease, background 160ms ease, opacity 160ms ease;
+}
+
+.schedule-row:focus-within,
+.schedule-row:hover {
+  border-color: rgba(0, 153, 255, 0.55);
+  background: var(--field-hover);
+}
+
+.schedule-row.is-dragging {
+  z-index: 10;
+  opacity: 0.55;
+  border-color: var(--accent);
+}
+
+.drag-handle {
+  width: 34px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #74747b;
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle svg {
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
+}
+
+.slot-time {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.name-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  outline: 0;
+  background: #09090b;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.name-input::placeholder {
+  color: #66666d;
+}
+
+.name-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.1);
+}
+
+.note-button {
+  min-width: 62px;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #09090b;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.note-button:hover,
+.note-button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: 0;
+}
+
+.note-button.has-note {
+  color: var(--accent);
+  border-color: rgba(0, 153, 255, 0.45);
+  background: rgba(0, 153, 255, 0.08);
+}
+
+.note-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.note-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.loading-state,
+.error-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.error-state {
+  color: var(--danger);
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.notes-modal {
+  width: min(100%, 520px);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.notes-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.notes-time {
+  margin: 0 0 2px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.notes-header h2 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.notes-modal > label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notes-modal textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  outline: 0;
+  background: var(--field);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.notes-modal textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.1);
+}
+
+.notes-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.primary-button,
+.secondary-button,
+.icon-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 42px;
+  padding: 9px 18px;
+  border-radius: 9px;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: var(--accent);
+  color: #fff;
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--muted);
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--field);
+  color: var(--muted);
+}
+
+.icon-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.toast {
+  position: fixed;
+  z-index: 200;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #16161a;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toast.is-error {
+  border-color: rgba(255, 107, 107, 0.45);
+  color: #ffb0b0;
+}
+
+body.is-reordering {
+  user-select: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 620px) {
+  .app-shell {
+    display: block;
+    padding: 8px;
+  }
+
+  .schedule-card {
+    padding: 14px 10px;
+    border-radius: 11px;
+  }
+
+  .schedule-header {
+    gap: 10px;
+    padding: 0 4px 13px;
+    margin-bottom: 11px;
+  }
+
+  .header-copy h1 {
+    font-size: 26px;
+  }
+
+  .header-copy p {
+    font-size: 12px;
+  }
+
+  .brand-logo {
+    width: 88px;
+  }
+
+  .connection-pill {
+    min-height: 24px;
+    padding: 4px 7px;
+    font-size: 9px;
+  }
+
+  .schedule-toolbar {
+    padding: 0 4px;
+  }
+
+  .schedule-toolbar p {
+    font-size: 11px;
+  }
+
+  .schedule-toolbar p:last-child {
+    display: none;
+  }
+
+  .schedule-list {
+    gap: 6px;
+  }
+
+  .schedule-row {
+    grid-template-columns: 30px 68px minmax(0, 1fr) 43px;
+    gap: 6px;
+    min-height: 52px;
+    padding: 5px;
+    border-radius: 9px;
+  }
+
+  .drag-handle {
+    width: 30px;
+    height: 40px;
+  }
+
+  .slot-time {
+    font-size: 12px;
+  }
+
+  .name-input {
+    min-height: 40px;
+    padding: 7px 8px;
+    font-size: 16px;
+  }
+
+  .note-button {
+    min-width: 43px;
+    width: 43px;
+    min-height: 40px;
+    padding: 0;
+  }
+
+  .note-label {
+    display: none;
+  }
+
+  .notes-modal {
+    padding: 16px;
+  }
+
+  .notes-actions,
+  .primary-button,
+  .secondary-button {
+    width: 100%;
+  }
+
+  .notes-actions {
+    flex-direction: row;
+  }
+}
+
+@media (max-width: 380px) {
+  .schedule-row {
+    grid-template-columns: 28px 62px minmax(0, 1fr) 40px;
+    gap: 4px;
+  }
+
+  .drag-handle {
+    width: 28px;
+  }
+
+  .slot-time {
+    font-size: 11px;
+  }
+
+  .note-button {
+    min-width: 40px;
+    width: 40px;
+  }
+
+  .brand-logo {
+    width: 74px;
+  }
+}

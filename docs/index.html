@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>Event Schedule</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="schedule-card" aria-labelledby="scheduleTitle">
+      <header class="schedule-header">
+        <div class="header-copy">
+          <h1 id="scheduleTitle">Event Schedule</h1>
+          <p>8:00 PM–1:30 AM · 30-minute slots</p>
+        </div>
+
+        <div class="header-meta">
+          <div class="connection-pill is-connecting" id="connectionPill">
+            <span class="connection-dot" aria-hidden="true"></span>
+            <span id="connectionText">Connecting</span>
+          </div>
+          <img
+            class="brand-logo"
+            src="https://images.squarespace-cdn.com/content/v1/681ea18dd168a935c26295bd/c311da3d-6fbf-446a-858c-227fa011e7e3/Xodia+MEDIA+Group+%28TRANS%29+%281%29+%281%29.png?format=750w"
+            alt="Xodia Media Group"
+          >
+        </div>
+      </header>
+
+      <div class="schedule-toolbar">
+        <p><strong id="viewerCount">1</strong> viewer<span id="viewerPlural"></span> connected</p>
+        <p>Drag the grip to reorder slots.</p>
+      </div>
+
+      <div class="schedule-list" id="scheduleList" aria-live="polite">
+        <div class="loading-state">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <span>Loading schedule</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="notesModal" hidden>
+    <section class="notes-modal" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+      <header class="notes-header">
+        <div>
+          <p class="notes-time" id="notesTime"></p>
+          <h2 id="notesTitle">Slot Notes</h2>
+        </div>
+        <button class="icon-button close-button" id="closeNotesButton" type="button" aria-label="Close notes">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18"></path>
+          </svg>
+        </button>
+      </header>
+
+      <label for="notesInput">Notes</label>
+      <textarea id="notesInput" maxlength="2000" placeholder="Add notes for this time slot."></textarea>
+
+      <footer class="notes-actions">
+        <button class="secondary-button" id="cancelNotesButton" type="button">Cancel</button>
+        <button class="primary-button" id="saveNotesButton" type="button">Save Note</button>
+      </footer>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
