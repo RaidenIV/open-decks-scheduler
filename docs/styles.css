@@ -10,6 +10,7 @@
   --accent: #0099ff;
   --success: #6ee7a0;
   --danger: #ff6b6b;
+  --warning: #ffb84d;
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
 }
 
@@ -289,6 +290,11 @@ button {
   white-space: nowrap;
 }
 
+.name-field {
+  position: relative;
+  min-width: 0;
+}
+
 .name-input {
   width: 100%;
   min-width: 0;
@@ -310,6 +316,54 @@ button {
 .name-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.1);
+}
+
+.name-input.has-lock-status {
+  padding-right: 68px;
+}
+
+.name-input[readonly] {
+  cursor: not-allowed;
+  color: #8c8c94;
+}
+
+.slot-lock-status {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 1;
+  transform: translateY(-50%);
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(110, 231, 160, 0.1);
+  color: var(--success);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.schedule-row.is-locked {
+  border-color: rgba(255, 184, 77, 0.5);
+}
+
+.schedule-row.is-locked .slot-lock-status {
+  background: rgba(255, 184, 77, 0.12);
+  color: var(--warning);
+}
+
+.schedule-row.is-locked .name-input {
+  border-color: rgba(255, 184, 77, 0.35);
+}
+
+.schedule-row.is-editing {
+  border-color: rgba(110, 231, 160, 0.45);
+}
+
+.schedule-row.is-lock-pending .name-input {
+  opacity: 0.7;
 }
 
 .note-button {

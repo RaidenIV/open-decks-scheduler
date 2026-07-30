@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("node:http");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const Schedule = require("./models/Schedule");
@@ -9,6 +10,9 @@ const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL;
 const SCHEDULE_KEY = "main";
 const SLOT_COUNT = 12;
+const SLOT_LOCK_TTL_MS = 30_000;
+const SLOT_LOCK_SWEEP_MS = 5_000;
+const slotLocks = new Map();
 
 const TIME_LABELS = [
   "8:00 PM",
@@ -54,7 +58,8 @@ const io = new Server(server, {
         isAllowedOrigin(origin)
       );
     },
-    methods: ["GET", "PATCH", "PUT", "OPTIONS"]
+    methods: ["GET", "PATCH", "PUT", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "X-Schedule-Client-Id", "X-Schedule-Lock-Token"]
   },
   serveClient: true
 });
@@ -68,7 +73,10 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET, PATCH, PUT, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, X-Schedule-Client-Id, X-Schedule-Lock-Token"
+    );
   }
 
   if (req.method === "OPTIONS") {
@@ -140,6 +148,57 @@ function emitPresence() {
   });
 }
 
+function isLockExpired(lock, now = Date.now()) {
+  return !lock || lock.expiresAt <= now;
+}
+
+function getActiveSlotLock(slotId) {
+  const lock = slotLocks.get(String(slotId));
+
+  if (isLockExpired(lock)) {
+    if (lock) slotLocks.delete(String(slotId));
+    return null;
+  }
+
+  return lock;
+}
+
+function serializeSlotLocks() {
+  const locks = {};
+  const now = Date.now();
+
+  for (const [slotId, lock] of slotLocks.entries()) {
+    if (isLockExpired(lock, now)) {
+      slotLocks.delete(slotId);
+      continue;
+    }
+
+    locks[slotId] = {
+      clientId: lock.clientId,
+      expiresAt: lock.expiresAt
+    };
+  }
+
+  return locks;
+}
+
+function emitSlotLocks() {
+  io.emit("slot-locks:update", serializeSlotLocks());
+}
+
+function releaseSocketLocks(socketId) {
+  let changed = false;
+
+  for (const [slotId, lock] of slotLocks.entries()) {
+    if (lock.socketId === socketId) {
+      slotLocks.delete(slotId);
+      changed = true;
+    }
+  }
+
+  if (changed) emitSlotLocks();
+}
+
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
@@ -164,6 +223,20 @@ app.patch("/api/schedule/slots/:slotId", async (req, res, next) => {
 
     if (!mongoose.isObjectIdOrHexString(slotId)) {
       return res.status(400).json({ error: "Invalid slot ID." });
+    }
+
+    if (Object.hasOwn(body, "name")) {
+      const clientId = String(req.get("X-Schedule-Client-Id") || "");
+      const lockToken = String(req.get("X-Schedule-Lock-Token") || "");
+      const lock = getActiveSlotLock(slotId);
+
+      if (!lock || lock.clientId !== clientId || lock.token !== lockToken) {
+        return res.status(409).json({
+          error: "This slot is being edited by another viewer. Try again when it is available."
+        });
+      }
+
+      lock.expiresAt = Date.now() + SLOT_LOCK_TTL_MS;
     }
 
     const updates = {};
@@ -276,13 +349,102 @@ io.on("connection", async (socket) => {
   try {
     const schedule = await ensureSchedule();
     socket.emit("schedule:update", serializeSchedule(schedule));
+    socket.emit("slot-locks:update", serializeSlotLocks());
     emitPresence();
   } catch (error) {
     console.error("Socket initialization failed:", error);
   }
 
-  socket.on("disconnect", emitPresence);
+  socket.on("client:register", ({ clientId } = {}, acknowledge = () => {}) => {
+    const normalizedClientId = String(clientId || "").trim().slice(0, 100);
+
+    if (!normalizedClientId) {
+      acknowledge({ ok: false });
+      return;
+    }
+
+    socket.data.clientId = normalizedClientId;
+    acknowledge({ ok: true });
+  });
+
+  socket.on("slot-lock:request", ({ slotId, clientId } = {}, acknowledge = () => {}) => {
+    const normalizedSlotId = String(slotId || "");
+    const normalizedClientId = String(clientId || "").trim().slice(0, 100);
+
+    if (
+      !mongoose.isObjectIdOrHexString(normalizedSlotId) ||
+      !normalizedClientId ||
+      socket.data.clientId !== normalizedClientId
+    ) {
+      acknowledge({ granted: false, reason: "invalid-request" });
+      return;
+    }
+
+    const currentLock = getActiveSlotLock(normalizedSlotId);
+
+    if (currentLock && currentLock.clientId !== normalizedClientId) {
+      acknowledge({
+        granted: false,
+        reason: "in-use",
+        expiresAt: currentLock.expiresAt
+      });
+      return;
+    }
+
+    const token = randomUUID();
+    const lock = {
+      clientId: normalizedClientId,
+      socketId: socket.id,
+      token,
+      expiresAt: Date.now() + SLOT_LOCK_TTL_MS
+    };
+
+    slotLocks.set(normalizedSlotId, lock);
+    acknowledge({ granted: true, token, expiresAt: lock.expiresAt });
+    emitSlotLocks();
+  });
+
+  socket.on("slot-lock:heartbeat", ({ slotId, clientId, token } = {}) => {
+    const normalizedSlotId = String(slotId || "");
+    const lock = getActiveSlotLock(normalizedSlotId);
+
+    if (
+      lock &&
+      lock.socketId === socket.id &&
+      lock.clientId === String(clientId || "") &&
+      lock.token === String(token || "")
+    ) {
+      lock.expiresAt = Date.now() + SLOT_LOCK_TTL_MS;
+    }
+  });
+
+  socket.on("slot-lock:release", ({ slotId, clientId, token } = {}) => {
+    const normalizedSlotId = String(slotId || "");
+    const lock = getActiveSlotLock(normalizedSlotId);
+
+    if (
+      lock &&
+      lock.socketId === socket.id &&
+      lock.clientId === String(clientId || "") &&
+      lock.token === String(token || "")
+    ) {
+      slotLocks.delete(normalizedSlotId);
+      emitSlotLocks();
+    }
+  });
+
+  socket.on("disconnect", () => {
+    releaseSocketLocks(socket.id);
+    emitPresence();
+  });
 });
+
+const slotLockSweepTimer = setInterval(() => {
+  const before = slotLocks.size;
+  serializeSlotLocks();
+  if (slotLocks.size !== before) emitSlotLocks();
+}, SLOT_LOCK_SWEEP_MS);
+slotLockSweepTimer.unref();
 
 async function start() {
   if (!MONGODB_URI) {

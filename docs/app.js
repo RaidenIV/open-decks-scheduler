@@ -3,6 +3,13 @@
 
   const config = window.SCHEDULE_APP_CONFIG || {};
   const API_BASE_URL = String(config.apiBaseUrl || "").replace(/\/$/, "");
+
+  function getClientId() {
+    return window.crypto?.randomUUID?.() ||
+      `viewer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  const CLIENT_ID = getClientId();
   const TIME_LABELS = [
     "8:00 PM",
     "8:30 PM",
@@ -42,7 +49,11 @@
   let isDragging = false;
   let pendingRemoteSchedule = null;
   let toastTimer = null;
+  let lockHeartbeatTimer = null;
+  let clientRegistrationPromise = Promise.resolve(false);
   const nameSaveTimers = new Map();
+  const slotLocks = new Map();
+  const ownedLockTokens = new Map();
 
   function apiUrl(pathname) {
     return `${API_BASE_URL}${pathname}`;
@@ -129,6 +140,176 @@
     input.setSelectionRange(focusState.start, focusState.end);
   }
 
+  function hasOwnSlotLock(slotId) {
+    return ownedLockTokens.has(String(slotId));
+  }
+
+  function isSlotLockedByOther(slotId) {
+    const lock = slotLocks.get(String(slotId));
+    return Boolean(lock && lock.clientId !== CLIENT_ID);
+  }
+
+  function applySlotLockStates() {
+    list.querySelectorAll(".schedule-row").forEach((row) => {
+      const slotId = row.dataset.slotId;
+      const input = row.querySelector(".name-input");
+      const status = row.querySelector(".slot-lock-status");
+      const lock = slotLocks.get(slotId);
+      const isOwn = Boolean(lock && lock.clientId === CLIENT_ID);
+      const isOther = Boolean(lock && lock.clientId !== CLIENT_ID);
+
+      row.classList.toggle("is-editing", isOwn);
+      row.classList.toggle("is-locked", isOther);
+      input.readOnly = isOther;
+      input.classList.toggle("has-lock-status", Boolean(lock));
+      input.setAttribute("aria-readonly", String(isOther));
+
+      if (isOwn) {
+        status.textContent = "Editing";
+        status.hidden = false;
+      } else if (isOther) {
+        status.textContent = "In use";
+        status.hidden = false;
+      } else {
+        status.textContent = "";
+        status.hidden = true;
+      }
+    });
+  }
+
+  function updateSlotLocks(nextLocks = {}) {
+    slotLocks.clear();
+
+    Object.entries(nextLocks).forEach(([slotId, lock]) => {
+      if (lock?.clientId) slotLocks.set(String(slotId), lock);
+    });
+
+    for (const slotId of ownedLockTokens.keys()) {
+      const lock = slotLocks.get(slotId);
+      if (!lock || lock.clientId !== CLIENT_ID) {
+        ownedLockTokens.delete(slotId);
+        window.clearTimeout(nameSaveTimers.get(slotId));
+        nameSaveTimers.delete(slotId);
+      }
+    }
+
+    applySlotLockStates();
+  }
+
+  async function requestSlotLock(slotId, input) {
+    const normalizedSlotId = String(slotId);
+
+    if (hasOwnSlotLock(normalizedSlotId)) {
+      input.focus({ preventScroll: true });
+      return true;
+    }
+
+    if (isSlotLockedByOther(normalizedSlotId)) {
+      showToast("Another viewer is editing this slot.", true);
+      return false;
+    }
+
+    if (!socket?.connected) {
+      showToast("Reconnect before editing a slot.", true);
+      return false;
+    }
+
+    const isRegistered = await clientRegistrationPromise.catch(() => false);
+    if (!isRegistered) {
+      showToast("The live editor is still connecting.", true);
+      return false;
+    }
+
+    const row = input.closest(".schedule-row");
+    row?.classList.add("is-lock-pending");
+    input.readOnly = true;
+
+    return new Promise((resolve) => {
+      socket.timeout(3500).emit(
+        "slot-lock:request",
+        { slotId: normalizedSlotId, clientId: CLIENT_ID },
+        (error, response = {}) => {
+          row?.classList.remove("is-lock-pending");
+
+          if (error || !response.granted || !response.token) {
+            input.readOnly = isSlotLockedByOther(normalizedSlotId);
+            showToast("Another viewer is editing this slot.", true);
+            resolve(false);
+            return;
+          }
+
+          ownedLockTokens.set(normalizedSlotId, response.token);
+          slotLocks.set(normalizedSlotId, {
+            clientId: CLIENT_ID,
+            expiresAt: response.expiresAt
+          });
+          applySlotLockStates();
+          input.readOnly = false;
+          input.focus({ preventScroll: true });
+          input.setSelectionRange(input.value.length, input.value.length);
+          resolve(true);
+        }
+      );
+    });
+  }
+
+  async function flushNameSave(slotId, name) {
+    const normalizedSlotId = String(slotId);
+    const lockToken = ownedLockTokens.get(normalizedSlotId);
+    window.clearTimeout(nameSaveTimers.get(normalizedSlotId));
+    nameSaveTimers.delete(normalizedSlotId);
+
+    if (!lockToken) return;
+
+    try {
+      await request(`/api/schedule/slots/${encodeURIComponent(normalizedSlotId)}`, {
+        method: "PATCH",
+        headers: {
+          "X-Schedule-Client-Id": CLIENT_ID,
+          "X-Schedule-Lock-Token": lockToken
+        },
+        body: JSON.stringify({ name })
+      });
+    } catch (error) {
+      showToast(error.message, true);
+      await reloadSchedule();
+    }
+  }
+
+  async function releaseSlotLock(slotId, name, saveBeforeRelease = true) {
+    const normalizedSlotId = String(slotId);
+    const token = ownedLockTokens.get(normalizedSlotId);
+    if (!token) return;
+
+    if (saveBeforeRelease) {
+      await flushNameSave(normalizedSlotId, name);
+    }
+
+    socket?.emit("slot-lock:release", {
+      slotId: normalizedSlotId,
+      clientId: CLIENT_ID,
+      token
+    });
+    ownedLockTokens.delete(normalizedSlotId);
+    slotLocks.delete(normalizedSlotId);
+    applySlotLockStates();
+  }
+
+  function startLockHeartbeat() {
+    window.clearInterval(lockHeartbeatTimer);
+    lockHeartbeatTimer = window.setInterval(() => {
+      if (!socket?.connected) return;
+
+      ownedLockTokens.forEach((token, slotId) => {
+        socket.emit("slot-lock:heartbeat", {
+          slotId,
+          clientId: CLIENT_ID,
+          token
+        });
+      });
+    }, 10_000);
+  }
+
   function noteButtonMarkup(hasNote) {
     if (hasNote) {
       return `
@@ -180,10 +361,53 @@
     input.value = slot.name || "";
     input.dataset.slotId = slot.id;
     input.setAttribute("aria-label", `Name for ${TIME_LABELS[index]}`);
+
+    const nameField = document.createElement("div");
+    nameField.className = "name-field";
+
+    const lockStatus = document.createElement("span");
+    lockStatus.className = "slot-lock-status";
+    lockStatus.id = `slot-lock-${slot.id}`;
+    lockStatus.hidden = true;
+    input.setAttribute("aria-describedby", lockStatus.id);
+
+    input.addEventListener("pointerdown", (event) => {
+      if (hasOwnSlotLock(slot.id)) return;
+      event.preventDefault();
+      requestSlotLock(slot.id, input);
+    });
+
+    input.addEventListener("focus", () => {
+      if (hasOwnSlotLock(slot.id)) return;
+      input.blur();
+      requestSlotLock(slot.id, input);
+    });
+
+    input.addEventListener("beforeinput", (event) => {
+      if (!hasOwnSlotLock(slot.id)) event.preventDefault();
+    });
+
     input.addEventListener("input", () => {
+      if (!hasOwnSlotLock(slot.id)) return;
       slot.name = input.value;
       queueNameSave(slot.id, input.value);
     });
+
+    input.addEventListener("blur", () => {
+      window.setTimeout(() => {
+        if (document.activeElement !== input) {
+          releaseSlotLock(slot.id, input.value, true);
+        }
+      }, 0);
+    });
+
+    input.addEventListener("click", () => {
+      if (isSlotLockedByOther(slot.id)) {
+        showToast("Another viewer is editing this slot.", true);
+      }
+    });
+
+    nameField.append(input, lockStatus);
 
     const noteButton = document.createElement("button");
     noteButton.type = "button";
@@ -196,7 +420,7 @@
     noteButton.innerHTML = noteButtonMarkup(Boolean(slot.notes));
     noteButton.addEventListener("click", () => openNotes(slot.id));
 
-    row.append(handle, time, input, noteButton);
+    row.append(handle, time, nameField, noteButton);
     return row;
   }
 
@@ -218,6 +442,7 @@
 
     list.replaceChildren(fragment);
     restoreFocusedInputState(focusState);
+    applySlotLockStates();
   }
 
   function refreshVisibleTimes() {
@@ -238,23 +463,14 @@
   }
 
   function queueNameSave(slotId, name) {
-    window.clearTimeout(nameSaveTimers.get(slotId));
+    const normalizedSlotId = String(slotId);
+    window.clearTimeout(nameSaveTimers.get(normalizedSlotId));
 
     const timer = window.setTimeout(async () => {
-      try {
-        await request(`/api/schedule/slots/${encodeURIComponent(slotId)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ name })
-        });
-      } catch (error) {
-        showToast(error.message, true);
-        await reloadSchedule();
-      } finally {
-        nameSaveTimers.delete(slotId);
-      }
+      await flushNameSave(normalizedSlotId, name);
     }, 350);
 
-    nameSaveTimers.set(slotId, timer);
+    nameSaveTimers.set(normalizedSlotId, timer);
   }
 
   function openNotes(slotId) {
@@ -409,7 +625,13 @@
     setTimesMode.hidden = !showSetTimes;
     openDecksMode.hidden = showSetTimes;
 
-    modeButtons.forEach((button) => {
+    window.addEventListener("beforeunload", () => {
+    ownedLockTokens.forEach((token, slotId) => {
+      socket?.emit("slot-lock:release", { slotId, clientId: CLIENT_ID, token });
+    });
+  });
+
+  modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === mode;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
@@ -439,10 +661,30 @@
         transports: ["websocket", "polling"]
       });
 
-      socket.on("connect", () => setConnectionState("online"));
-      socket.on("disconnect", () => setConnectionState("offline"));
+      socket.on("connect", () => {
+        setConnectionState("online");
+        ownedLockTokens.clear();
+        clientRegistrationPromise = new Promise((resolve) => {
+          socket.timeout(3500).emit(
+            "client:register",
+            { clientId: CLIENT_ID },
+            (error, response = {}) => resolve(!error && response.ok === true)
+          );
+        });
+        startLockHeartbeat();
+        applySlotLockStates();
+      });
+      socket.on("disconnect", () => {
+        setConnectionState("offline");
+        ownedLockTokens.clear();
+        slotLocks.clear();
+        clientRegistrationPromise = Promise.resolve(false);
+        window.clearInterval(lockHeartbeatTimer);
+        applySlotLockStates();
+      });
       socket.on("connect_error", () => setConnectionState("offline"));
       socket.on("schedule:update", renderSchedule);
+      socket.on("slot-locks:update", updateSlotLocks);
       socket.on("presence:update", ({ viewers }) => {
         const count = Math.max(Number(viewers) || 1, 1);
         viewerCount.textContent = String(count);
