@@ -19,6 +19,10 @@
   ];
 
   const list = document.getElementById("scheduleList");
+  const modeButtons = Array.from(document.querySelectorAll(".mode-button"));
+  const setTimesMode = document.getElementById("setTimesMode");
+  const openDecksMode = document.getElementById("openDecksMode");
+  const setTimesFrame = document.getElementById("setTimesFrame");
   const connectionPill = document.getElementById("connectionPill");
   const connectionText = document.getElementById("connectionText");
   const viewerCount = document.getElementById("viewerCount");
@@ -33,6 +37,7 @@
 
   let schedule = null;
   let socket = null;
+  let scheduleSortable = null;
   let activeNoteSlotId = null;
   let isDragging = false;
   let pendingRemoteSchedule = null;
@@ -162,7 +167,6 @@
         <circle cx="16" cy="18" r="1.5"></circle>
       </svg>
     `;
-    attachDragEvents(handle, row);
 
     const time = document.createElement("time");
     time.className = "slot-time";
@@ -301,95 +305,121 @@
     }
   }
 
-  function attachDragEvents(handle, row) {
-    let pointerId = null;
-    let dragged = false;
+  async function persistCurrentOrder() {
+    if (!schedule?.slots?.length) return;
 
-    handle.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
+    const slotIds = Array.from(list.querySelectorAll(".schedule-row")).map(
+      (item) => item.dataset.slotId
+    );
 
-      pointerId = event.pointerId;
-      dragged = true;
-      isDragging = true;
+    if (slotIds.length !== schedule.slots.length) return;
+
+    const slotMap = new Map(schedule.slots.map((slot) => [slot.id, slot]));
+    schedule.slots = slotIds.map((id, index) => ({
+      ...slotMap.get(id),
+      position: index,
+      time: TIME_LABELS[index]
+    }));
+    refreshVisibleTimes();
+
+    try {
+      const updatedSchedule = await request("/api/schedule/reorder", {
+        method: "PUT",
+        body: JSON.stringify({ slotIds })
+      });
       pendingRemoteSchedule = null;
-      row.classList.add("is-dragging");
-      document.body.classList.add("is-reordering");
-      handle.setPointerCapture(pointerId);
-      event.preventDefault();
-    });
-
-    handle.addEventListener("pointermove", (event) => {
-      if (!dragged || event.pointerId !== pointerId) return;
-
-      const target = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest(".schedule-row");
-
-      if (target && target !== row && target.parentElement === list) {
-        const rectangle = target.getBoundingClientRect();
-        const insertAfter = event.clientY > rectangle.top + rectangle.height / 2;
-
-        list.insertBefore(row, insertAfter ? target.nextSibling : target);
-        refreshVisibleTimes();
-      }
-
-      const edge = 70;
-      if (event.clientY < edge) {
-        window.scrollBy({ top: -12, behavior: "auto" });
-      } else if (event.clientY > window.innerHeight - edge) {
-        window.scrollBy({ top: 12, behavior: "auto" });
-      }
-    });
-
-    const finishDrag = async (event, cancelled = false) => {
-      if (!dragged || event.pointerId !== pointerId) return;
-
-      dragged = false;
-      isDragging = false;
-      row.classList.remove("is-dragging");
-      document.body.classList.remove("is-reordering");
-
-      if (handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
-      }
-
-      if (cancelled) {
-        renderSchedule(schedule);
-        return;
-      }
-
-      const slotIds = Array.from(list.querySelectorAll(".schedule-row")).map(
-        (item) => item.dataset.slotId
-      );
-
-      const slotMap = new Map(schedule.slots.map((slot) => [slot.id, slot]));
-      schedule.slots = slotIds.map((id, index) => ({
-        ...slotMap.get(id),
-        position: index,
-        time: TIME_LABELS[index]
-      }));
-
-      try {
-        const updatedSchedule = await request("/api/schedule/reorder", {
-          method: "PUT",
-          body: JSON.stringify({ slotIds })
-        });
-        renderSchedule(updatedSchedule);
-      } catch (error) {
-        showToast(error.message, true);
-        await reloadSchedule();
-      } finally {
-        if (pendingRemoteSchedule) {
-          const remoteSchedule = pendingRemoteSchedule;
-          pendingRemoteSchedule = null;
-          renderSchedule(remoteSchedule);
-        }
-      }
-    };
-
-    handle.addEventListener("pointerup", (event) => finishDrag(event));
-    handle.addEventListener("pointercancel", (event) => finishDrag(event, true));
+      renderSchedule(updatedSchedule);
+    } catch (error) {
+      pendingRemoteSchedule = null;
+      showToast(error.message, true);
+      await reloadSchedule();
+    }
   }
+
+  function initializeScheduleSorting() {
+    if (scheduleSortable || typeof window.Sortable !== "function") return;
+
+    scheduleSortable = window.Sortable.create(list, {
+      animation: 170,
+      handle: ".drag-handle",
+      draggable: ".schedule-row",
+      ghostClass: "is-drag-ghost",
+      chosenClass: "is-drag-chosen",
+      dragClass: "is-dragging",
+      forceFallback: true,
+      fallbackOnBody: true,
+      fallbackTolerance: 4,
+      touchStartThreshold: 3,
+      delayOnTouchOnly: true,
+      delay: 90,
+      scroll: true,
+      scrollSensitivity: 70,
+      scrollSpeed: 12,
+      onStart() {
+        isDragging = true;
+        pendingRemoteSchedule = null;
+        document.body.classList.add("is-reordering");
+      },
+      onChange() {
+        refreshVisibleTimes();
+      },
+      async onEnd() {
+        isDragging = false;
+        document.body.classList.remove("is-reordering");
+        refreshVisibleTimes();
+        await persistCurrentOrder();
+      }
+    });
+  }
+
+  function syncSetTimesFrameHeight() {
+    if (!setTimesFrame?.contentDocument) return;
+
+    const documentElement = setTimesFrame.contentDocument.documentElement;
+    const body = setTimesFrame.contentDocument.body;
+    const height = Math.max(
+      documentElement?.scrollHeight || 0,
+      documentElement?.offsetHeight || 0,
+      body?.scrollHeight || 0,
+      body?.offsetHeight || 0,
+      640
+    );
+
+    setTimesFrame.style.height = `${height}px`;
+  }
+
+  function initializeSetTimesFrameSizing() {
+    if (!setTimesFrame) return;
+
+    setTimesFrame.addEventListener("load", () => {
+      syncSetTimesFrameHeight();
+
+      const frameBody = setTimesFrame.contentDocument?.body;
+      if (frameBody && "ResizeObserver" in window) {
+        const observer = new ResizeObserver(syncSetTimesFrameHeight);
+        observer.observe(frameBody);
+      }
+    });
+
+    window.addEventListener("resize", syncSetTimesFrameHeight, { passive: true });
+  }
+
+  function setMode(mode) {
+    const showSetTimes = mode === "set-times";
+    setTimesMode.hidden = !showSetTimes;
+    openDecksMode.hidden = showSetTimes;
+
+    modeButtons.forEach((button) => {
+      const isActive = button.dataset.mode === mode;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+
+    if (showSetTimes) {
+      window.requestAnimationFrame(syncSetTimesFrameHeight);
+    }
+  }
+
 
   async function reloadSchedule() {
     try {
@@ -427,6 +457,14 @@
 
     document.head.appendChild(script);
   }
+
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
+
+  initializeSetTimesFrameSizing();
+  setMode("set-times");
+  initializeScheduleSorting();
 
   closeNotesButton.addEventListener("click", closeNotes);
   cancelNotesButton.addEventListener("click", closeNotes);

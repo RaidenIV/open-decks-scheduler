@@ -4,47 +4,67 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
-  <title>Event Schedule</title>
+  <title>OPEN DECKS SLOTS</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 </head>
 <body>
   <main class="app-shell">
-    <section class="schedule-card" aria-labelledby="scheduleTitle">
-      <header class="schedule-header">
-        <div class="header-copy">
-          <h1 id="scheduleTitle">Event Schedule</h1>
-          <p>8:00 PM–1:30 AM · 30-minute slots</p>
-        </div>
+    <div class="app-container">
+      <nav class="mode-switcher" aria-label="Schedule mode">
+        <button class="mode-button is-active" type="button" data-mode="set-times" aria-pressed="true">Set Times</button>
+        <button class="mode-button" type="button" data-mode="open-decks" aria-pressed="false">Open Decks Slots</button>
+      </nav>
 
-        <div class="header-meta">
-          <div class="connection-pill is-connecting" id="connectionPill">
-            <span class="connection-dot" aria-hidden="true"></span>
-            <span id="connectionText">Connecting</span>
+      <section class="mode-view set-times-view" id="setTimesMode" aria-label="Set Time Generator">
+        <iframe
+          id="setTimesFrame"
+          class="set-times-frame"
+          src="./set-times.html?embedded=1"
+          title="Set Time Generator"
+          loading="eager"
+          scrolling="no"
+        ></iframe>
+      </section>
+
+      <section class="mode-view open-decks-view" id="openDecksMode" aria-labelledby="scheduleTitle" hidden>
+        <div class="schedule-card">
+          <header class="schedule-header">
+            <div class="header-copy">
+              <h1 id="scheduleTitle">OPEN DECKS SLOTS</h1>
+            </div>
+
+            <div class="header-meta">
+              <img
+                class="brand-logo"
+                src="https://images.squarespace-cdn.com/content/v1/681ea18dd168a935c26295bd/c311da3d-6fbf-446a-858c-227fa011e7e3/Xodia+MEDIA+Group+%28TRANS%29+%281%29+%281%29.png?format=750w"
+                alt="Xodia Media Group"
+              >
+              <div class="connection-pill is-connecting" id="connectionPill">
+                <span class="connection-dot" aria-hidden="true"></span>
+                <span id="connectionText">Connecting</span>
+              </div>
+            </div>
+          </header>
+
+          <div class="schedule-toolbar">
+            <p class="toolbar-instruction">Drag the grip to reorder slots.</p>
+            <p class="toolbar-viewers"><strong id="viewerCount">1</strong> viewer<span id="viewerPlural"></span> connected</p>
           </div>
-          <img
-            class="brand-logo"
-            src="https://images.squarespace-cdn.com/content/v1/681ea18dd168a935c26295bd/c311da3d-6fbf-446a-858c-227fa011e7e3/Xodia+MEDIA+Group+%28TRANS%29+%281%29+%281%29.png?format=750w"
-            alt="Xodia Media Group"
-          >
-        </div>
-      </header>
 
-      <div class="schedule-toolbar">
-        <p><strong id="viewerCount">1</strong> viewer<span id="viewerPlural"></span> connected</p>
-        <p>Drag the grip to reorder slots.</p>
-      </div>
-
-      <div class="schedule-list" id="scheduleList" aria-live="polite">
-        <div class="loading-state">
-          <span class="loading-spinner" aria-hidden="true"></span>
-          <span>Loading schedule</span>
+          <div class="schedule-list" id="scheduleList" aria-live="polite">
+            <div class="loading-state">
+              <span class="loading-spinner" aria-hidden="true"></span>
+              <span>Loading schedule</span>
+            </div>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   </main>
 
   <div class="modal-backdrop" id="notesModal" hidden>

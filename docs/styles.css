@@ -46,8 +46,74 @@ button {
   width: 100%;
   min-height: 100vh;
   padding: clamp(12px, 3vw, 32px);
+}
+
+.app-container {
+  width: min(100%, 1400px);
+  margin: 0 auto;
+}
+
+.mode-switcher {
+  width: fit-content;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 auto 14px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+
+.mode-button {
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.mode-button:hover,
+.mode-button:focus-visible {
+  color: var(--text);
+  outline: 0;
+}
+
+.mode-button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.mode-view[hidden] {
+  display: none;
+}
+
+.open-decks-view {
   display: grid;
   place-items: center;
+}
+
+.set-times-view {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #10131a;
+  box-shadow: var(--shadow);
+}
+
+.set-times-frame {
+  display: block;
+  width: 100%;
+  min-height: 640px;
+  border: 0;
+  background: #10131a;
 }
 
 .schedule-card {
@@ -174,9 +240,15 @@ button {
   background: var(--field-hover);
 }
 
-.schedule-row.is-dragging {
+.schedule-row.is-dragging,
+.schedule-row.is-drag-chosen {
   z-index: 10;
-  opacity: 0.55;
+  border-color: var(--accent);
+  background: var(--field-hover);
+}
+
+.schedule-row.is-drag-ghost {
+  opacity: 0.35;
   border-color: var(--accent);
 }
 
@@ -195,6 +267,11 @@ button {
 }
 
 .drag-handle:active {
+  cursor: grabbing;
+}
+
+.is-reordering .drag-handle,
+.is-reordering .schedule-row {
   cursor: grabbing;
 }
 
@@ -482,6 +559,21 @@ body.is-reordering {
     padding: 8px;
   }
 
+  .mode-switcher {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .mode-button {
+    min-width: 0;
+    padding: 8px 7px;
+    font-size: 11px;
+  }
+
+  .set-times-view {
+    border-radius: 11px;
+  }
+
   .schedule-card {
     padding: 14px 10px;
     border-radius: 11px;
@@ -519,8 +611,12 @@ body.is-reordering {
     font-size: 11px;
   }
 
-  .schedule-toolbar p:last-child {
+  .toolbar-instruction {
     display: none;
+  }
+
+  .schedule-toolbar {
+    justify-content: flex-end;
   }
 
   .schedule-list {
