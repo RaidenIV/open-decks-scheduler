@@ -534,76 +534,109 @@
 
   function renderSchedule(nextSchedule) {
     if (!nextSchedule?.slots?.length) return;
-
+  
+    // Remove the initial loading message or a previous connection error
+    // as soon as a valid schedule is received.
+    list.querySelectorAll(".loading-state, .error-state").forEach((element) => {
+      element.remove();
+    });
+  
     const incomingTimestamp = Date.parse(nextSchedule.updatedAt || "") || 0;
-    if (incomingTimestamp && incomingTimestamp < latestScheduleTimestamp) return;
-    latestScheduleTimestamp = Math.max(latestScheduleTimestamp, incomingTimestamp);
-
+  
+    if (incomingTimestamp && incomingTimestamp < latestScheduleTimestamp) {
+      return;
+    }
+  
+    latestScheduleTimestamp = Math.max(
+      latestScheduleTimestamp,
+      incomingTimestamp
+    );
+  
     if (isDragging) {
       pendingRemoteSchedule = nextSchedule;
       return;
     }
-
+  
     const activeInput = getActiveNameInput();
     const activeSlotId = activeInput?.dataset.slotId || null;
+  
     const existingRows = new Map(
       Array.from(list.querySelectorAll(".schedule-row")).map((row) => [
         row.dataset.slotId,
         row
       ])
     );
+  
     const nextSlotIds = nextSchedule.slots.map((slot) => String(slot.id));
-    const currentSlotIds = Array.from(list.querySelectorAll(".schedule-row")).map(
-      (row) => row.dataset.slotId
-    );
+  
+    const currentSlotIds = Array.from(
+      list.querySelectorAll(".schedule-row")
+    ).map((row) => row.dataset.slotId);
+  
     const orderChanged =
       currentSlotIds.length === nextSlotIds.length &&
-      currentSlotIds.some((slotId, index) => slotId !== nextSlotIds[index]);
-
+      currentSlotIds.some(
+        (slotId, index) => slotId !== nextSlotIds[index]
+      );
+  
     const deferRemoteOrder = Boolean(orderChanged && activeSlotId);
+  
     const mergedSlots = nextSchedule.slots.map((incomingSlot, index) => {
       const slotId = String(incomingSlot.id);
       let row = existingRows.get(slotId);
-
+  
       if (!row) {
         row = makeRow(incomingSlot, index);
         existingRows.set(slotId, row);
         list.appendChild(row);
       }
-
+  
       const input = row.querySelector(".name-input");
       const preserveLocal = shouldPreserveLocalInput(slotId, input);
       const currentIndex = currentSlotIds.indexOf(slotId);
-      const displayIndex = deferRemoteOrder && currentIndex >= 0 ? currentIndex : index;
+  
+      const displayIndex =
+        deferRemoteOrder && currentIndex >= 0
+          ? currentIndex
+          : index;
+  
       const mergedSlot = {
         ...incomingSlot,
         position: displayIndex,
         time: TIME_LABELS[displayIndex],
-        name: preserveLocal ? input.value : (incomingSlot.name || "")
+        name: preserveLocal
+          ? input.value
+          : incomingSlot.name || ""
       };
-
+  
       patchRow(row, mergedSlot, displayIndex);
+  
       return mergedSlot;
     });
-
+  
     for (const [slotId, row] of existingRows.entries()) {
-      if (!nextSlotIds.includes(slotId)) row.remove();
+      if (!nextSlotIds.includes(slotId)) {
+        row.remove();
+      }
     }
-
+  
     if (deferRemoteOrder) {
       pendingRemoteSchedule = nextSchedule;
     } else {
       mergedSlots.forEach((slot) => {
         const row = existingRows.get(String(slot.id));
-        if (row && row.parentElement === list) list.appendChild(row);
+  
+        if (row && row.parentElement === list) {
+          list.appendChild(row);
+        }
       });
     }
-
+  
     schedule = {
       ...nextSchedule,
       slots: mergedSlots
     };
-
+  
     applySlotLockStates();
   }
 
