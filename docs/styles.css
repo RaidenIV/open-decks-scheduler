@@ -293,11 +293,14 @@ button {
 .name-field {
   position: relative;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .name-input {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   padding: 8px 10px;
   border: 1px solid transparent;
@@ -307,6 +310,12 @@ button {
   color: var(--text);
   font-size: 16px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
 }
 
 .name-input::placeholder {
@@ -316,6 +325,7 @@ button {
 .name-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(0, 153, 255, 0.1);
+  text-overflow: clip;
 }
 
 .name-input.has-lock-status {

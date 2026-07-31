@@ -54,6 +54,8 @@
   const nameSaveTimers = new Map();
   const slotLocks = new Map();
   const ownedLockTokens = new Map();
+  const localNameDrafts = new Map();
+  let latestScheduleTimestamp = 0;
 
   function apiUrl(pathname) {
     return `${API_BASE_URL}${pathname}`;
@@ -108,36 +110,67 @@
     return payload;
   }
 
-  function getFocusedInputState() {
-    const activeElement = document.activeElement;
-    if (!activeElement?.classList.contains("name-input")) return null;
-
-    return {
-      slotId: activeElement.dataset.slotId,
-      value: activeElement.value,
-      start: activeElement.selectionStart,
-      end: activeElement.selectionEnd
-    };
+  function getNameInput(slotId) {
+    return list.querySelector(
+      `.name-input[data-slot-id="${CSS.escape(String(slotId))}"]`
+    );
   }
 
-  function restoreFocusedInputState(focusState) {
-    if (!focusState) return;
+  function getActiveNameInput() {
+    const activeElement = document.activeElement;
+    return activeElement?.classList.contains("name-input") ? activeElement : null;
+  }
 
-    const input = list.querySelector(
-      `.name-input[data-slot-id="${CSS.escape(focusState.slotId)}"]`
+  function rememberLocalDraft(input, changes = {}) {
+    const slotId = String(input.dataset.slotId || "");
+    if (!slotId) return null;
+
+    const current = localNameDrafts.get(slotId) || {};
+    const draft = {
+      value: input.value,
+      selectionStart: input.selectionStart,
+      selectionEnd: input.selectionEnd,
+      composing: Boolean(current.composing),
+      dirty: current.dirty !== false,
+      ...current,
+      ...changes,
+      value: input.value,
+      selectionStart: input.selectionStart,
+      selectionEnd: input.selectionEnd
+    };
+
+    localNameDrafts.set(slotId, draft);
+    return draft;
+  }
+
+  function shouldPreserveLocalInput(slotId, input = getNameInput(slotId)) {
+    const normalizedSlotId = String(slotId);
+    const draft = localNameDrafts.get(normalizedSlotId);
+
+    return Boolean(
+      input &&
+      (
+        document.activeElement === input ||
+        hasOwnSlotLock(normalizedSlotId) ||
+        draft?.dirty ||
+        draft?.composing
+      )
     );
+  }
 
-    if (!input) return;
+  function applyPendingRemoteSchedule() {
+    if (
+      !pendingRemoteSchedule ||
+      isDragging ||
+      getActiveNameInput() ||
+      ownedLockTokens.size > 0
+    ) {
+      return;
+    }
 
-    input.value = focusState.value;
-
-    const focusedSlot = schedule?.slots.find(
-      (slot) => slot.id === focusState.slotId
-    );
-    if (focusedSlot) focusedSlot.name = focusState.value;
-
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(focusState.start, focusState.end);
+    const pending = pendingRemoteSchedule;
+    pendingRemoteSchedule = null;
+    renderSchedule(pending);
   }
 
   function hasOwnSlotLock(slotId) {
@@ -155,6 +188,7 @@
       const input = row.querySelector(".name-input");
       const status = row.querySelector(".slot-lock-status");
       const lock = slotLocks.get(slotId);
+      if (!input || !status) return;
       const isOwn = Boolean(lock && lock.clientId === CLIENT_ID);
       const isOther = Boolean(lock && lock.clientId !== CLIENT_ID);
 
@@ -190,6 +224,11 @@
         ownedLockTokens.delete(slotId);
         window.clearTimeout(nameSaveTimers.get(slotId));
         nameSaveTimers.delete(slotId);
+
+        const input = getNameInput(slotId);
+        if (input && document.activeElement !== input) {
+          localNameDrafts.delete(slotId);
+        }
       }
     }
 
@@ -262,14 +301,21 @@
     if (!lockToken) return;
 
     try {
-      await request(`/api/schedule/slots/${encodeURIComponent(normalizedSlotId)}`, {
-        method: "PATCH",
-        headers: {
-          "X-Schedule-Client-Id": CLIENT_ID,
-          "X-Schedule-Lock-Token": lockToken
-        },
-        body: JSON.stringify({ name })
-      });
+      const updatedSchedule = await request(
+        `/api/schedule/slots/${encodeURIComponent(normalizedSlotId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "X-Schedule-Client-Id": CLIENT_ID,
+            "X-Schedule-Lock-Token": lockToken
+          },
+          body: JSON.stringify({ name })
+        }
+      );
+
+      const draft = localNameDrafts.get(normalizedSlotId);
+      if (draft) draft.dirty = false;
+      renderSchedule(updatedSchedule);
     } catch (error) {
       showToast(error.message, true);
       await reloadSchedule();
@@ -292,7 +338,9 @@
     });
     ownedLockTokens.delete(normalizedSlotId);
     slotLocks.delete(normalizedSlotId);
+    localNameDrafts.delete(normalizedSlotId);
     applySlotLockStates();
+    applyPendingRemoteSchedule();
   }
 
   function startLockHeartbeat() {
@@ -360,6 +408,12 @@
     input.placeholder = "Enter name";
     input.value = slot.name || "";
     input.dataset.slotId = slot.id;
+    input.autocomplete = "off";
+    input.autocapitalize = "words";
+    input.enterKeyHint = "done";
+    input.spellcheck = true;
+    input.setAttribute("data-1p-ignore", "true");
+    input.setAttribute("data-lpignore", "true");
     input.setAttribute("aria-label", `Name for ${TIME_LABELS[index]}`);
 
     const nameField = document.createElement("div");
@@ -387,10 +441,31 @@
       if (!hasOwnSlotLock(slot.id)) event.preventDefault();
     });
 
+    input.addEventListener("compositionstart", () => {
+      if (!hasOwnSlotLock(slot.id)) return;
+      rememberLocalDraft(input, { composing: true, dirty: true });
+    });
+
     input.addEventListener("input", () => {
       if (!hasOwnSlotLock(slot.id)) return;
       slot.name = input.value;
+      const draft = rememberLocalDraft(input, { dirty: true });
+      if (!draft?.composing) queueNameSave(slot.id, input.value);
+    });
+
+    input.addEventListener("compositionend", () => {
+      if (!hasOwnSlotLock(slot.id)) return;
+      slot.name = input.value;
+      rememberLocalDraft(input, { composing: false, dirty: true });
       queueNameSave(slot.id, input.value);
+    });
+
+    input.addEventListener("select", () => {
+      if (hasOwnSlotLock(slot.id)) rememberLocalDraft(input);
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) input.blur();
     });
 
     input.addEventListener("blur", () => {
@@ -398,7 +473,7 @@
         if (document.activeElement !== input) {
           releaseSlotLock(slot.id, input.value, true);
         }
-      }, 0);
+      }, 120);
     });
 
     input.addEventListener("click", () => {
@@ -424,24 +499,111 @@
     return row;
   }
 
+  function patchRow(row, slot, index) {
+    row.dataset.slotId = slot.id;
+
+    const time = row.querySelector(".slot-time");
+    const input = row.querySelector(".name-input");
+    const noteButton = row.querySelector(".note-button");
+    const handle = row.querySelector(".drag-handle");
+    const lockStatus = row.querySelector(".slot-lock-status");
+
+    time.textContent = TIME_LABELS[index];
+    input.dataset.slotId = slot.id;
+    input.setAttribute("aria-label", `Name for ${TIME_LABELS[index]}`);
+    handle.setAttribute("aria-label", `Move ${TIME_LABELS[index]} slot`);
+
+    const hasNote = Boolean(slot.notes);
+    const noteStateChanged = noteButton.classList.contains("has-note") !== hasNote;
+    noteButton.dataset.slotId = slot.id;
+    noteButton.classList.toggle("has-note", hasNote);
+    noteButton.setAttribute(
+      "aria-label",
+      `${hasNote ? "Edit" : "Add"} note for ${TIME_LABELS[index]}`
+    );
+    if (noteStateChanged) noteButton.innerHTML = noteButtonMarkup(hasNote);
+
+    lockStatus.id = `slot-lock-${slot.id}`;
+    input.setAttribute("aria-describedby", lockStatus.id);
+
+    if (!shouldPreserveLocalInput(slot.id, input) && input.value !== (slot.name || "")) {
+      input.value = slot.name || "";
+      input.scrollLeft = 0;
+    }
+  }
+
   function renderSchedule(nextSchedule) {
     if (!nextSchedule?.slots?.length) return;
+
+    const incomingTimestamp = Date.parse(nextSchedule.updatedAt || "") || 0;
+    if (incomingTimestamp && incomingTimestamp < latestScheduleTimestamp) return;
+    latestScheduleTimestamp = Math.max(latestScheduleTimestamp, incomingTimestamp);
 
     if (isDragging) {
       pendingRemoteSchedule = nextSchedule;
       return;
     }
 
-    const focusState = getFocusedInputState();
-    schedule = nextSchedule;
-    const fragment = document.createDocumentFragment();
+    const activeInput = getActiveNameInput();
+    const activeSlotId = activeInput?.dataset.slotId || null;
+    const existingRows = new Map(
+      Array.from(list.querySelectorAll(".schedule-row")).map((row) => [
+        row.dataset.slotId,
+        row
+      ])
+    );
+    const nextSlotIds = nextSchedule.slots.map((slot) => String(slot.id));
+    const currentSlotIds = Array.from(list.querySelectorAll(".schedule-row")).map(
+      (row) => row.dataset.slotId
+    );
+    const orderChanged =
+      currentSlotIds.length === nextSlotIds.length &&
+      currentSlotIds.some((slotId, index) => slotId !== nextSlotIds[index]);
 
-    schedule.slots.forEach((slot, index) => {
-      fragment.appendChild(makeRow(slot, index));
+    const deferRemoteOrder = Boolean(orderChanged && activeSlotId);
+    const mergedSlots = nextSchedule.slots.map((incomingSlot, index) => {
+      const slotId = String(incomingSlot.id);
+      let row = existingRows.get(slotId);
+
+      if (!row) {
+        row = makeRow(incomingSlot, index);
+        existingRows.set(slotId, row);
+        list.appendChild(row);
+      }
+
+      const input = row.querySelector(".name-input");
+      const preserveLocal = shouldPreserveLocalInput(slotId, input);
+      const currentIndex = currentSlotIds.indexOf(slotId);
+      const displayIndex = deferRemoteOrder && currentIndex >= 0 ? currentIndex : index;
+      const mergedSlot = {
+        ...incomingSlot,
+        position: displayIndex,
+        time: TIME_LABELS[displayIndex],
+        name: preserveLocal ? input.value : (incomingSlot.name || "")
+      };
+
+      patchRow(row, mergedSlot, displayIndex);
+      return mergedSlot;
     });
 
-    list.replaceChildren(fragment);
-    restoreFocusedInputState(focusState);
+    for (const [slotId, row] of existingRows.entries()) {
+      if (!nextSlotIds.includes(slotId)) row.remove();
+    }
+
+    if (deferRemoteOrder) {
+      pendingRemoteSchedule = nextSchedule;
+    } else {
+      mergedSlots.forEach((slot) => {
+        const row = existingRows.get(String(slot.id));
+        if (row && row.parentElement === list) list.appendChild(row);
+      });
+    }
+
+    schedule = {
+      ...nextSchedule,
+      slots: mergedSlots
+    };
+
     applySlotLockStates();
   }
 
@@ -625,13 +787,7 @@
     setTimesMode.hidden = !showSetTimes;
     openDecksMode.hidden = showSetTimes;
 
-    window.addEventListener("beforeunload", () => {
-    ownedLockTokens.forEach((token, slotId) => {
-      socket?.emit("slot-lock:release", { slotId, clientId: CLIENT_ID, token });
-    });
-  });
-
-  modeButtons.forEach((button) => {
+    modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === mode;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
@@ -678,6 +834,9 @@
         setConnectionState("offline");
         ownedLockTokens.clear();
         slotLocks.clear();
+        localNameDrafts.clear();
+        nameSaveTimers.forEach((timer) => window.clearTimeout(timer));
+        nameSaveTimers.clear();
         clientRegistrationPromise = Promise.resolve(false);
         window.clearInterval(lockHeartbeatTimer);
         applySlotLockStates();
@@ -702,6 +861,12 @@
 
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
+
+  window.addEventListener("beforeunload", () => {
+    ownedLockTokens.forEach((token, slotId) => {
+      socket?.emit("slot-lock:release", { slotId, clientId: CLIENT_ID, token });
+    });
   });
 
   initializeSetTimesFrameSizing();
